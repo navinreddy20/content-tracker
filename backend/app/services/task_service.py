@@ -8,13 +8,38 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.task import Task
+from app.models.task import AssignedRole, Task, TaskState
 from app.schemas.task import TaskCreate, TaskUpdate
 
 
-async def get_all_tasks(db: AsyncSession) -> list[Task]:
-    """Return every task ordered by id."""
-    result = await db.execute(select(Task).order_by(Task.id))
+async def get_all_tasks(
+    db: AsyncSession,
+    state: TaskState | None = None,
+    assigned_role: AssignedRole | None = None,
+) -> list[Task]:
+    """Return tasks ordered by id, optionally filtered by state and/or role.
+
+    Both filters are AND-ed when supplied together.
+    No filters → returns every task (existing behaviour preserved).
+    """
+    query = select(Task).order_by(Task.id)
+    if state is not None:
+        query = query.where(Task.state == state)
+    if assigned_role is not None:
+        query = query.where(Task.assigned_role == assigned_role)
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def get_tasks_by_role(db: AsyncSession, role: AssignedRole) -> list[Task]:
+    """Return all tasks assigned to *role*, ordered by id.
+
+    Returns an empty list (not 404) when no tasks match — the role is valid
+    but simply has no tasks yet.
+    """
+    result = await db.execute(
+        select(Task).where(Task.assigned_role == role).order_by(Task.id)
+    )
     return list(result.scalars().all())
 
 

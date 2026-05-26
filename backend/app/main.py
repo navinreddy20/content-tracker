@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.tasks import router as tasks_router
@@ -9,7 +9,7 @@ app = FastAPI(title=settings.app_name, version="0.1.0")
 # ---------------------------------------------------------------------------
 # CORS
 # Allow the frontend regardless of how it is served locally:
-#   - python -m http.server 8000 --directory frontend  → same origin, no CORS needed
+#   - python -m http.server 8000 --directory frontend  â†’ same origin, no CORS needed
 #     but listed for explicitness
 #   - VS Code Live Server (5500)
 #   - Any other local port the dev may use

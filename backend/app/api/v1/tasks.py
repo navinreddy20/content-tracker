@@ -1,6 +1,6 @@
-"""FastAPI router for /api/tasks.
+﻿"""FastAPI router for /api/tasks.
 
-Routes are thin: validate input, call the service, map None → 404, return.
+Routes are thin: validate input, call the service, map None â†’ 404, return.
 No SQLAlchemy imports here. No business logic here.
 """
 from typing import Annotated
@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
-from app.models.task import Task
+from app.models.task import AssignedRole, Task, TaskState
 from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
 from app.services import task_service
 
@@ -29,8 +29,59 @@ DbDep = Annotated[AsyncSession, Depends(get_db)]
     response_model_by_alias=True,   # assigned_role → assignedRole, created_at → createdAt
     summary="List all tasks",
 )
-async def list_tasks(db: DbDep) -> list[Task]:
-    return await task_service.get_all_tasks(db)
+async def list_tasks(
+    db: DbDep,
+    state: str | None = None,
+    assigned_role: str | None = None,
+) -> list[Task]:
+    """Return tasks, optionally filtered by state and/or assigned_role.
+
+    Query params are accepted as raw strings and validated manually so that
+    invalid values produce 400 (not FastAPI’s default 422 for enum mismatch).
+    Both filters are AND-ed when supplied together.
+    """
+    validated_state: TaskState | None = None
+    validated_role: AssignedRole | None = None
+
+    if state is not None:
+        try:
+            validated_state = TaskState(state)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"invalid state: {state}",
+            )
+
+    if assigned_role is not None:
+        try:
+            validated_role = AssignedRole(assigned_role)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"invalid role: {assigned_role}",
+            )
+
+    return await task_service.get_all_tasks(db, validated_state, validated_role)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/tasks/by-role/{role}
+# ---------------------------------------------------------------------------
+
+@router.get(
+    "/by-role/{role}",
+    response_model=list[TaskResponse],
+    response_model_by_alias=True,
+    summary="List tasks by assigned role",
+)
+async def list_tasks_by_role(role: AssignedRole, db: DbDep) -> list[Task]:
+    """Return all tasks assigned to a given role.
+
+    Returns an empty array (200) when no tasks match â€” not a 404.
+    FastAPI validates *role* against the AssignedRole enum; an unknown value
+    yields a 422 Unprocessable Entity automatically.
+    """
+    return await task_service.get_tasks_by_role(db, role)
 
 
 # ---------------------------------------------------------------------------
