@@ -22,115 +22,206 @@ const ROLE_CONFIG = {
   Uploader: { color: '#3fb950', label: 'Uploader',     canAdvance: ['uploaded'] },
 };
 
+// Maps JWT role values → ROLE_CONFIG keys
+const ROLE_MAP = {
+  admin:        'Admin',
+  content_team: 'Content',
+  video_editor: 'Editor',
+  uploader:     'Uploader',
+};
+
+const TOKEN_KEY = 'telusko_token';
+
 /* ════════════════════════════════════════════════════════
-   Mock Data Store
+   Token / Auth helpers
 ════════════════════════════════════════════════════════ */
 
-let tasks = [
-  {
-    id: 1,
-    title: 'Introduction to Spring Boot',
-    assignedRole: 'Content',
-    state: 'code_ready',
-    description: 'Cover project setup, auto-configuration, and starter dependencies.',
-    createdAt: '2026-05-01',
-  },
-  {
-    id: 2,
-    title: 'REST API with Spring MVC',
-    assignedRole: 'Editor',
-    state: 'recorded',
-    description: 'Build a full CRUD REST API using @RestController and ResponseEntity.',
-    createdAt: '2026-05-03',
-  },
-  {
-    id: 3,
-    title: 'Spring Security — JWT Auth',
-    assignedRole: 'Editor',
-    state: 'editing',
-    description: 'Implement JWT-based authentication and role-based authorization.',
-    createdAt: '2026-05-05',
-  },
-  {
-    id: 4,
-    title: 'Hibernate & JPA Deep Dive',
-    assignedRole: 'Uploader',
-    state: 'uploaded',
-    description: 'Entity mapping, relationships, JPQL queries, and transaction management.',
-    createdAt: '2026-05-08',
-  },
-  {
-    id: 5,
-    title: 'Microservices with Spring Cloud',
-    assignedRole: 'Admin',
-    state: 'published',
-    description: 'Service discovery, API gateway, config server, and circuit breaker patterns.',
-    createdAt: '2026-05-10',
-  },
-];
+function getToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
 
-let currentRole = 'Admin';
-let nextId = 6;
+function setToken(token) {
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+function clearToken() {
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+/** Decode the JWT payload (client-side only — NOT a security check). */
+function parseJwtPayload(token) {
+  try {
+    const base64Url = token.split('.')[1];
+    const base64    = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const json      = decodeURIComponent(
+      atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join('')
+    );
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+/* ════════════════════════════════════════════════════════
+   State
+════════════════════════════════════════════════════════ */
+
+let tasks = [];
+let currentRole = 'Admin';    // derived from JWT after login
 let draggedTaskId = null;
 
 /* ════════════════════════════════════════════════════════
-   Mock API  —  drop-in replaceable with real fetch() calls
-   Philosophy: "Done vs. Verified" — every call is awaited
-   and every failure is caught and surfaced, never silently swallowed.
+   Login form
 ════════════════════════════════════════════════════════ */
 
-/**
- * Simulates a fetch() call to the Spring Boot backend.
- * Currently rejects all requests — backend not yet connected.
- * Replace this function body with real fetch() once the API is running.
- */
-function mockFetch(url, options = {}) {
-  return fetch(`http://localhost:8000${url}`, options).then(async (response) => {
-    let data = null;
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      data = await response.json();
-    }
-    return { ok: response.ok, status: response.status, data };
-  });
+function showLoginForm() {
+  document.getElementById('loginModal').classList.add('modal-open');
+  // Hide main UI while unauthenticated
+  document.getElementById('board').innerHTML = '';
+  document.getElementById('stats').innerHTML = '';
+  setTimeout(() => document.getElementById('login-username').focus(), 50);
 }
 
-/** High-level API wrapper.  Each method is "verified" — errors are never silent. */
+function hideLoginForm() {
+  document.getElementById('loginModal').classList.remove('modal-open');
+  document.getElementById('login-error').hidden = true;
+  document.getElementById('login-form').reset();
+}
+
+async function handleLoginSubmit(e) {
+  e.preventDefault();
+  const form     = e.currentTarget;
+  const username = form.elements['username'].value.trim();
+  const password = form.elements['password'].value;
+
+  if (!username || !password) {
+    showLoginError('Username and password are required.');
+    return;
+  }
+
+  const btn = form.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  btn.textContent = 'Signing in…';
+
+  try {
+    const body = new URLSearchParams({ username, password });
+    const response = await fetch('http://localhost:8000/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: body.toString(),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      showLoginError(err.detail || 'Invalid credentials. Please try again.');
+      return;
+    }
+
+    const data = await response.json();
+    setToken(data.access_token);
+    applyRoleFromToken(data.access_token);
+    hideLoginForm();
+    renderBoard();
+    showToast(`Welcome back, ${username}!`, 'success');
+  } catch (err) {
+    showLoginError(`Could not reach the server: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  }
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('login-error');
+  el.textContent = msg;
+  el.hidden = false;
+}
+
+function applyRoleFromToken(token) {
+  const payload = parseJwtPayload(token);
+  if (!payload) return;
+  currentRole = ROLE_MAP[payload.role] || 'Admin';
+  const config    = ROLE_CONFIG[currentRole];
+  const indicator = document.getElementById('role-indicator');
+  if (indicator) {
+    indicator.textContent = config.label;
+    indicator.style.color = config.color;
+  }
+}
+
+function logout() {
+  clearToken();
+  tasks = [];
+  currentRole = 'Admin';
+  showLoginForm();
+  showToast('Signed out.', 'info');
+}
+
+/* ════════════════════════════════════════════════════════
+   API  — all calls add Authorization: Bearer <token>
+   On 401: clear token + show login form.
+════════════════════════════════════════════════════════ */
+
+async function apiFetch(url, options = {}) {
+  const token = getToken();
+  const headers = { ...(options.headers || {}) };
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
+  const response = await fetch(`http://localhost:8000${url}`, { ...options, headers });
+
+  // Token expired or invalid → force re-login
+  if (response.status === 401) {
+    clearToken();
+    showLoginForm();
+    showToast('Session expired. Please sign in again.', 'error');
+    throw new Error('Unauthorised — redirected to login');
+  }
+
+  let data = null;
+  const ct = response.headers.get('content-type') || '';
+  if (ct.includes('application/json')) {
+    data = await response.json();
+  }
+  return { ok: response.ok, status: response.status, data };
+}
+
+/** High-level API wrapper. Each method is "verified" — errors are never silent. */
 const api = {
   async getTasks() {
     try {
-      const res = await mockFetch('/api/tasks');
+      const res = await apiFetch('/api/tasks');
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       return res.data;
     } catch (err) {
+      if (err.message.includes('Unauthorised')) throw err;
       showToast(`Failed to load tasks: ${err.message}`, 'error');
       return structuredClone(tasks); // graceful degradation
     }
   },
 
   async createTask(payload) {
-    const res = await mockFetch('/api/tasks', {
+    const res = await apiFetch('/api/tasks', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(`Server error ${res.status}`), { status: res.status, data: res.data });
     return res.data;
   },
 
   async updateTask(id, updates) {
-    const res = await mockFetch(`/api/tasks/${id}`, {
+    const res = await apiFetch(`/api/tasks/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates),
     });
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    if (!res.ok) throw Object.assign(new Error(`Server error ${res.status}`), { status: res.status, data: res.data });
     return res.data;
   },
 
   async deleteTask(id) {
-    const res = await mockFetch(`/api/tasks/${id}`, { method: 'DELETE' });
-    if (!res.ok) throw new Error(`Server error ${res.status}`);
+    const res = await apiFetch(`/api/tasks/${id}`, { method: 'DELETE' });
+    if (!res.ok) throw Object.assign(new Error(`Server error ${res.status}`), { status: res.status, data: res.data });
     return true;
   },
 };
@@ -244,7 +335,8 @@ function buildColumn(state, columnTasks) {
       showToast(`"${task.title}" moved to ${label}`, 'success');
       renderBoard();
     } catch (err) {
-      showToast(`Could not move task: ${err.message}`, 'error');
+      const detail = err.data?.detail;
+      showToast(detail ? `Move blocked: ${detail}` : `Could not move task: ${err.message}`, 'error');
     } finally {
       draggedTaskId = null;
     }
@@ -349,7 +441,8 @@ async function advanceTask(taskId) {
     showToast(`"${task.title}" → ${nextLabel}`, 'success');
     renderBoard();
   } catch (err) {
-    showToast(`Could not advance task: ${err.message}`, 'error');
+    const detail = err.data?.detail;
+    showToast(detail ? `Blocked: ${detail}` : `Could not advance task: ${err.message}`, 'error');
   }
 }
 
@@ -369,7 +462,8 @@ async function deleteTask(taskId) {
     showToast('Task deleted.', 'info');
     renderBoard();
   } catch (err) {
-    showToast(`Could not delete task: ${err.message}`, 'error');
+    const detail = err.data?.detail;
+    showToast(detail ? `Blocked: ${detail}` : `Could not delete task: ${err.message}`, 'error');
   }
 }
 
@@ -443,7 +537,8 @@ async function handleFormSubmit(e) {
     closeModal();
     renderBoard();
   } catch (err) {
-    showToast(`Save failed: ${err.message}`, 'error');
+    const detail = err.data?.detail;
+    showToast(detail ? `Save blocked: ${detail}` : `Save failed: ${err.message}`, 'error');
   }
 }
 
@@ -464,17 +559,11 @@ document.addEventListener('keydown', e => {
 ════════════════════════════════════════════════════════ */
 
 function init() {
-  // Role switcher
-  const roleSelect = document.getElementById('roleSelect');
-  roleSelect.addEventListener('change', e => {
-    currentRole = e.target.value;
-    const config = ROLE_CONFIG[currentRole];
-    const indicator = document.getElementById('role-indicator');
-    indicator.textContent  = config.label;
-    indicator.style.color  = config.color;
-    renderBoard();
-    showToast(`Switched to ${config.label}`, 'info');
-  });
+  // Login form
+  document.getElementById('login-form').addEventListener('submit', handleLoginSubmit);
+
+  // Logout button
+  document.getElementById('logoutBtn').addEventListener('click', logout);
 
   // FAB — add task
   document.getElementById('fab').addEventListener('click', () => openModal());
@@ -489,8 +578,14 @@ function init() {
   // Form submission
   document.getElementById('task-form').addEventListener('submit', handleFormSubmit);
 
-  // Kick off first render
-  renderBoard();
-  showToast('Telusko Workflow Engine ready.', 'info');
+  // Check for existing token
+  const token = getToken();
+  if (token) {
+    applyRoleFromToken(token);
+    renderBoard();
+    showToast('Telusko Workflow Engine ready.', 'info');
+  } else {
+    showLoginForm();
+  }
 }
 document.addEventListener('DOMContentLoaded', init);

@@ -8,6 +8,52 @@
 </head>
 <body>
 
+  <!-- ── Login Modal (shown when unauthenticated) ── -->
+  <div id="loginModal" class="modal-overlay login-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <div class="modal-card login-card">
+      <div class="modal-header">
+        <div class="header-brand">
+          <span class="brand-badge">TELUSKO</span>
+          <span class="brand-name">Workflow Engine</span>
+        </div>
+        <h2 id="login-title" class="modal-title login-title">Sign In</h2>
+      </div>
+      <form id="login-form" class="task-form" novalidate>
+        <div class="form-group">
+          <label for="login-username">Username <span class="required" aria-hidden="true">*</span></label>
+          <input
+            type="text"
+            id="login-username"
+            name="username"
+            class="form-input"
+            placeholder="e.g. admin"
+            required
+            autocomplete="username"
+            autocorrect="off"
+            autocapitalize="none"
+          />
+        </div>
+        <div class="form-group">
+          <label for="login-password">Password <span class="required" aria-hidden="true">*</span></label>
+          <input
+            type="password"
+            id="login-password"
+            name="password"
+            class="form-input"
+            placeholder="••••••••"
+            required
+            autocomplete="current-password"
+          />
+        </div>
+        <div id="login-error" class="login-error" role="alert" aria-live="assertive" hidden></div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary login-btn">Sign In</button>
+        </div>
+        <p class="login-hint">Demo: admin / admin123 &nbsp;·&nbsp; content / content123</p>
+      </form>
+    </div>
+  </div>
+
   <!-- ── Top Navigation ── -->
   <header class="app-header">
     <div class="header-brand">
@@ -19,13 +65,10 @@
 
     <div class="role-wrapper">
       <span class="role-label">Logged in as:</span>
-      <span id="role-indicator" class="role-indicator">Admin</span>
-      <select id="roleSelect" class="role-select" aria-label="Switch active role">
-        <option value="Admin">Admin</option>
-        <option value="Content">Content Team</option>
-        <option value="Editor">Video Editor</option>
-        <option value="Uploader">Uploader</option>
-      </select>
+      <span id="role-indicator" class="role-indicator"></span>
+      <button id="logoutBtn" class="btn-logout" title="Sign out" aria-label="Sign out">
+        &#x2715; Logout
+      </button>
     </div>
   </header>
 

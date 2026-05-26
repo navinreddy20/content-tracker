@@ -1,7 +1,11 @@
-﻿"""FastAPI router for /api/tasks.
+"""FastAPI router for /api/tasks.
 
-Routes are thin: validate input, call the service, map None â†’ 404, return.
+Routes are thin: validate input, call the service, map None → 404, return.
 No SQLAlchemy imports here. No business logic here.
+
+All endpoints require a valid Bearer token (get_current_user).
+POST and DELETE additionally restrict by role (require_role).
+PUT enforces RBAC advance rules when the request body changes `state`.
 """
 from typing import Annotated
 
@@ -10,13 +14,26 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.models.task import AssignedRole, Task, TaskState
+from app.models.user import User
 from app.schemas.task import TaskCreate, TaskResponse, TaskUpdate
+from app.security.dependencies import get_current_user, require_role
 from app.services import task_service
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
 
 # Convenience type alias so every endpoint stays one-liner on the db param.
 DbDep = Annotated[AsyncSession, Depends(get_db)]
+
+# ---------------------------------------------------------------------------
+# RBAC advance rules — mirrors ROLE_CONFIG / canAdvance from frontend app.js
+# Keys are UserRole values; values are the TaskState keys a role may advance FROM.
+# ---------------------------------------------------------------------------
+_ADVANCE_ALLOWED: dict[str, list[str]] = {
+    "admin":        ["code_ready", "recorded", "editing", "uploaded"],
+    "content_team": ["code_ready"],
+    "video_editor": ["recorded", "editing"],
+    "uploader":     ["uploaded"],
+}
 
 
 # ---------------------------------------------------------------------------
@@ -33,12 +50,11 @@ async def list_tasks(
     db: DbDep,
     state: str | None = None,
     assigned_role: str | None = None,
+    _current_user: User = Depends(get_current_user),
 ) -> list[Task]:
     """Return tasks, optionally filtered by state and/or assigned_role.
 
-    Query params are accepted as raw strings and validated manually so that
-    invalid values produce 400 (not FastAPI’s default 422 for enum mismatch).
-    Both filters are AND-ed when supplied together.
+    Requires: any authenticated role.
     """
     validated_state: TaskState | None = None
     validated_role: AssignedRole | None = None
@@ -74,12 +90,14 @@ async def list_tasks(
     response_model_by_alias=True,
     summary="List tasks by assigned role",
 )
-async def list_tasks_by_role(role: AssignedRole, db: DbDep) -> list[Task]:
+async def list_tasks_by_role(
+    role: AssignedRole,
+    db: DbDep,
+    _current_user: User = Depends(get_current_user),
+) -> list[Task]:
     """Return all tasks assigned to a given role.
 
-    Returns an empty array (200) when no tasks match â€” not a 404.
-    FastAPI validates *role* against the AssignedRole enum; an unknown value
-    yields a 422 Unprocessable Entity automatically.
+    Requires: any authenticated role.
     """
     return await task_service.get_tasks_by_role(db, role)
 
@@ -95,7 +113,12 @@ async def list_tasks_by_role(role: AssignedRole, db: DbDep) -> list[Task]:
     status_code=status.HTTP_201_CREATED,
     summary="Create a task",
 )
-async def create_task(data: TaskCreate, db: DbDep) -> Task:
+async def create_task(
+    data: TaskCreate,
+    db: DbDep,
+    _current_user: User = Depends(require_role("admin", "content_team")),
+) -> Task:
+    """Requires: admin or content_team role."""
     return await task_service.create_task(db, data)
 
 
@@ -109,7 +132,36 @@ async def create_task(data: TaskCreate, db: DbDep) -> Task:
     response_model_by_alias=True,
     summary="Update a task (partial)",
 )
-async def update_task(task_id: int, data: TaskUpdate, db: DbDep) -> Task:
+async def update_task(
+    task_id: int,
+    data: TaskUpdate,
+    db: DbDep,
+    current_user: User = Depends(get_current_user),
+) -> Task:
+    """Partial update.  Any authenticated user may change non-state fields.
+
+    When *state* is included in the request body, the RBAC advance rule is
+    enforced: only roles whose canAdvance list includes the task's *current*
+    state are permitted.  Violation → 403.
+    """
+    if data.state is not None:
+        # Fetch task first to check current state
+        existing = await task_service.get_task(db, task_id)
+        if existing is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Task {task_id} not found",
+            )
+        allowed_from = _ADVANCE_ALLOWED.get(current_user.role.value, [])
+        if existing.state.value not in allowed_from:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"role {current_user.role.value} cannot advance from "
+                    f"state {existing.state.value}"
+                ),
+            )
+
     task = await task_service.update_task(db, task_id, data)
     if task is None:
         raise HTTPException(
@@ -128,7 +180,12 @@ async def update_task(task_id: int, data: TaskUpdate, db: DbDep) -> Task:
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a task",
 )
-async def delete_task(task_id: int, db: DbDep) -> None:
+async def delete_task(
+    task_id: int,
+    db: DbDep,
+    _current_user: User = Depends(require_role("admin")),
+) -> None:
+    """Requires: admin role."""
     deleted = await task_service.delete_task(db, task_id)
     if not deleted:
         raise HTTPException(
