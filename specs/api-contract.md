@@ -162,6 +162,84 @@ remains on the board (no local removal on failure).
 
 ---
 
+## POST /api/auth/login
+
+Authenticate a user and receive a JWT access token.
+
+**Request body**:
+
+```json
+{
+  "username": "string",
+  "password": "string"
+}
+```
+
+**Success (`200 OK`)** — returns a JWT access token:
+
+```json
+{
+  "access_token": "string",
+  "token_type": "bearer"
+}
+```
+
+**Error handling**: `401 Unauthorized` if credentials are invalid.
+
+---
+
+## POST /api/auth/users
+
+**Admin only.** Create a new user account.
+
+**Authorization**: Bearer JWT token with Admin role required.
+
+**Request body**:
+
+```json
+{
+  "username": "string",
+  "password": "string",
+  "role":     "Admin | Content | Editor | Uploader"
+}
+```
+
+**Success (`201 Created`)** — returns the created user (no password field):
+
+```json
+{
+  "id":       1,
+  "username": "string",
+  "role":     "Admin | Content | Editor | Uploader"
+}
+```
+
+**Error handling**: `403 Forbidden` if caller is not Admin. `400 Bad Request` if username already exists.
+
+---
+
+## GET /api/auth/me
+
+Return the profile of the currently authenticated user.
+
+**Authorization**: Bearer JWT token required.
+
+**Request**: no body, no query params.
+
+**Success (`200 OK`)** — returns the authenticated user's profile:
+
+```json
+{
+  "id":       1,
+  "username": "string",
+  "role":     "Admin | Content | Editor | Uploader"
+}
+```
+
+**Error handling**: `401 Unauthorized` if token is missing or invalid.
+
+---
+
 ## Error-handling contract summary
 
 | Endpoint            | `ok===false` check         | Caught inside `api.*`? | On error                                                            |
