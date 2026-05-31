@@ -1,6 +1,6 @@
 
 ---
-description: Implement a feature described in a markdown spec file under specs/features/. Reads the spec, builds the feature end-to-end across schemas, service, routes, and runs the smoke tests from the spec. Use when the user provides a spec file path.
+description: Implement a feature described in a markdown spec file anywhere under specs. Reads the spec, builds the feature end-to-end across schemas, service, routes, and runs the smoke tests from the spec. Use when the user provides a spec file path.
 argument-hint: <path-to-spec-file>
 disable-model-invocation: true
 allowed-tools: Read Write Edit Grep Glob Bash(curl:*) Bash(uv run *) Bash(git diff:*)
@@ -40,9 +40,10 @@ Touch only the files needed. Match existing patterns in each file.
 Pydantic v2. Async SQLAlchemy. snake_case Python. CLAUDE.md conventions.
  
 ### 5. Run smoke tests from the spec
-Execute every curl command in the spec's smoke test section.
-Show actual output for each.
-Compare against the spec's expectation. PASS or FAIL each.
+**Skip this step by default. Only run if the user explicitly passes `--test` in the arguments.**
+
+If `--test` is passed: execute every curl command in the spec's smoke test section,
+show actual output for each, and PASS or FAIL each against the spec's expectation.
  
 ### 6. Report
 Output markdown with:
@@ -56,3 +57,4 @@ Output markdown with:
 - Do not modify the spec file itself.
 - Do not modify frontend/ unless the spec explicitly says so.
 - If the spec is ambiguous, STOP and ask the user to clarify and update the spec.
+

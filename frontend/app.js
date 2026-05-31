@@ -105,7 +105,7 @@ async function handleLoginSubmit(e) {
 
   try {
     const body = new URLSearchParams({ username, password });
-    const response = await fetch('http://localhost:8000/api/auth/login', {
+    const response = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
@@ -167,7 +167,7 @@ async function apiFetch(url, options = {}) {
   const headers = { ...(options.headers || {}) };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  const response = await fetch(`http://localhost:8000${url}`, { ...options, headers });
+  const response = await fetch(url, { ...options, headers });
 
   // Token expired or invalid → force re-login
   if (response.status === 401) {

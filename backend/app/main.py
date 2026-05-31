@@ -1,5 +1,6 @@
 import uvicorn
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.auth import router as auth_router
@@ -38,6 +39,8 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 app.include_router(auth_router)
 app.include_router(tasks_router)
+
+app.mount("/", StaticFiles(directory="../frontend", html=True), name="static")
 
 
 # ---------------------------------------------------------------------------
